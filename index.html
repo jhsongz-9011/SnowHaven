@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>스키월드</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #cfe6f5; font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; touch-action: none; user-select: none; -webkit-user-select: none; }
+    canvas { display: block; }
+    .hud { position: fixed; pointer-events: none; color: #0e2a3f; text-shadow: 0 1px 0 rgba(255,255,255,.7); }
+    #stats { top: 14px; left: 16px; font-weight: 700; }
+    #stats .speed { font-size: 36px; line-height: 1; }
+    #stats .speed small { font-size: 14px; font-weight: 600; margin-left: 4px; }
+    #stats .time { font-size: 18px; margin-top: 6px; }
+    #stats .prog { margin-top: 8px; width: 160px; height: 6px; background: rgba(14,42,63,.18); border-radius: 3px; overflow: hidden; }
+    #stats .prog i { display: block; height: 100%; width: 0; background: #1f7ae0; }
+    #gear { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; padding: 6px; background: rgba(255,255,255,.82); border-radius: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+    #gear button { border: 0; background: transparent; padding: 8px 16px; border-radius: 12px; font-size: 15px; font-weight: 600; color: #0e2a3f; cursor: pointer; }
+    #gear button small { display: block; font-size: 11px; font-weight: 500; opacity: .6; }
+    #gear button.on { background: #1f7ae0; color: #fff; }
+    #action { position: fixed; right: 18px; bottom: 96px; display: none; border: 0; padding: 14px 22px; border-radius: 16px; font-size: 17px; font-weight: 800; color: #fff; background: #d8342c; box-shadow: 0 3px 12px rgba(0,0,0,.25); cursor: pointer; }
+    #action small { display: block; font-size: 11px; font-weight: 600; opacity: .8; }
+    #skip { position: fixed; top: 14px; right: 16px; display: none; border: 0; padding: 9px 14px; border-radius: 12px; font-size: 14px; font-weight: 700; color: #0e2a3f; background: rgba(255,255,255,.88); box-shadow: 0 2px 8px rgba(0,0,0,.2); cursor: pointer; }
+    #skip small { font-weight: 500; opacity: .6; margin-left: 4px; }
+    #hint { bottom: 86px; left: 0; right: 0; text-align: center; font-size: 13px; opacity: .8; }
+    #msg { top: 30%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 800; display: none; }
+    #msg small { display: block; margin-top: 8px; font-size: 15px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="stats" class="hud">
+    <div class="speed"><span id="spd">0</span><small>km/h</small></div>
+    <div class="time" id="time">0.00 s</div>
+    <div class="time" id="crash" style="font-size:14px;margin-top:2px">충돌 0회</div>
+    <div class="prog"><i id="prog"></i></div>
+  </div>
+  <div id="hint" class="hud">E / 버튼으로 리프트 탑승 · 1 스키 · 2 보드 · 3 썰매 로 장비 선택</div>
+  <div id="msg" class="hud"></div>
+  <button id="skip">정상으로 바로 가기<small>테스트</small></button>
+  <button id="action"></button>
+  <div id="gear">
+    <button data-eq="ski" class="on">스키<small>1</small></button>
+    <button data-eq="board">보드<small>2</small></button>
+    <button data-eq="sled">썰매<small>3</small></button>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
