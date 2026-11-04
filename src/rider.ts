@@ -1,6 +1,36 @@
 // 장비별 라이더 모델 (단순한 저폴리 캐릭터)
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { EquipmentId } from './sim/equipment';
+
+// ── GLB 캐릭터 (Blender 제작) ─────────────────────────────
+/** 모델 크기 배율 (감각 조정용) */
+export const MODEL_SCALE = 1.25;
+/** 리프트 착석 모델 오프셋: 모델 골반이 좌석 바닥보다 얼마나 위/앞에 오는지 */
+const SEAT_OFFSET = { y: -0.42, z: 0.15 };
+
+const loader = new GLTFLoader();
+const gltfCache = new Map<string, Promise<THREE.Group>>();
+function loadGlb(name: string): Promise<THREE.Group> {
+  let p = gltfCache.get(name);
+  if (!p) {
+    p = loader.loadAsync(`${import.meta.env.BASE_URL}models/${name}.glb`).then((g) => g.scene);
+    gltfCache.set(name, p);
+  }
+  return p;
+}
+/** 임시(프리미티브) 모델을 GLB 가 로드되면 교체한다. 실패하면 임시 모델 유지 */
+function swapInGlb(holder: THREE.Group, name: string, place: (m: THREE.Object3D) => void) {
+  loadGlb(name)
+    .then((src) => {
+      const m = src.clone(true); // geometry/material 은 공유, 노드만 복제
+      m.scale.setScalar(MODEL_SCALE);
+      place(m);
+      holder.clear();
+      holder.add(m);
+    })
+    .catch((e) => console.warn('GLB 로드 실패, 임시 모델 유지:', name, e));
+}
 
 const skin = new THREE.MeshLambertMaterial({ color: 0xe8a06a });
 const jacket = new THREE.MeshLambertMaterial({ color: 0xf2b630 });
@@ -32,6 +62,13 @@ function body(sitting: boolean, y0: number): THREE.Group {
 
 /** 원점 = 발 아래 표면, +z = 진행 방향 */
 export function buildRider(kind: EquipmentId): THREE.Group {
+  const holder = new THREE.Group();
+  holder.add(buildRiderPlaceholder(kind));
+  swapInGlb(holder, `rider_${kind}_ride`, () => {});
+  return holder;
+}
+
+function buildRiderPlaceholder(kind: EquipmentId): THREE.Group {
   const g = new THREE.Group();
   if (kind === 'ski') {
     g.add(box(0.12, 0.05, 1.9, gearRed, -0.2, 0.03, 0.1));
@@ -55,6 +92,13 @@ export function buildRider(kind: EquipmentId): THREE.Group {
 
 /** 리프트 의자에 앉은 모습. 원점 = 좌석 바닥 (의자 경로점에서 앞쪽으로 0.3m 이동해 앉는다), +z = 진행 방향 */
 export function buildSeatedRider(kind: EquipmentId): THREE.Group {
+  const holder = new THREE.Group();
+  holder.add(buildSeatedPlaceholder(kind));
+  swapInGlb(holder, `rider_${kind}_lift`, (m) => m.position.set(0, SEAT_OFFSET.y, SEAT_OFFSET.z));
+  return holder;
+}
+
+function buildSeatedPlaceholder(kind: EquipmentId): THREE.Group {
   const g = new THREE.Group();
   g.add(box(0.42, 0.2, 0.55, pants, 0, 0.2, 0.05)); // 허벅지
   g.add(box(0.4, 0.55, 0.22, pants, 0, -0.17, 0.32)); // 정강이가 아래로 늘어짐
