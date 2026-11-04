@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Input } from './input';
 import { buildRider, buildSeatedRider } from './rider';
-import { SnowFx } from './snow-fx';
+import { SnowFx, SNOW_FX } from './snow-fx';
 import { Snowfall, SkiTracks } from './env-fx';
 import { buildWorld } from './world';
 import { buildLift } from './lift-view';
@@ -362,7 +362,8 @@ function updateRider(dt: number) {
     mode === 'ski' && player.status === 'ride',
     player.speed,
     player.turnVel,
-    crashed ? 70 : player.status === 'fallen' && player.speed > 4 ? 2 : 0,
+    crashed ? SNOW_FX.crashBurst : 0,
+    player.status === 'fallen' && player.speed > SNOW_FX.fallenMinSpeed,
   );
   tracks.update(x, z, heading, mode === 'ski' && player.status === 'ride' && player.speed > 3, equipment);
   if (player.crashes !== lastCrashes) {

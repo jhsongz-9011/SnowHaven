@@ -12,10 +12,39 @@ const SEAT_OFFSET = { y: -0.34, z: 0.2 };
 
 const loader = new GLTFLoader();
 const gltfCache = new Map<string, Promise<THREE.Group>>();
+
+/** GLB 는 파츠마다 메시가 따로라 라이더 하나가 드로우콜 40여 개가 된다. 같은 재질끼리 합쳐 드로우콜을 줄인다 (변환은 정점에 구워 넣음) */
+function mergeByMaterial(scene: THREE.Group): THREE.Group {
+  scene.updateMatrixWorld(true);
+  const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+    const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+    g.applyMatrix4(mesh.matrixWorld);
+    for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+    const list = groups.get(mesh.material) ?? [];
+    list.push(g);
+    groups.set(mesh.material, list);
+  });
+  const out = new THREE.Group();
+  for (const [material, geos] of groups) {
+    const merged = mergeGeometries(geos);
+    if (merged) out.add(new THREE.Mesh(merged, material));
+  }
+  if (out.children.length === 0) throw new Error('GLB 에 메시가 없음');
+  return out;
+}
 function loadGlb(name: string): Promise<THREE.Group> {
   let p = gltfCache.get(name);
   if (!p) {
-    p = loader.loadAsync(`${import.meta.env.BASE_URL}models/${name}.glb`).then((g) => g.scene);
+    p = loader
+      .loadAsync(`${import.meta.env.BASE_URL}models/${name}.glb`)
+      .then((g) => mergeByMaterial(g.scene))
+      .catch((e) => {
+        gltfCache.delete(name); // 실패한 로드는 캐시하지 않는다 (다음 요청에서 재시도)
+        throw e;
+      });
     gltfCache.set(name, p);
   }
   return p;
@@ -126,7 +155,7 @@ function buildSeatedPlaceholder(kind: EquipmentId): THREE.Group {
   return root;
 }
 
-/** 배경 동승자(인스턴싱)용: 리프트 착석 모델을 정점 색이 구워진 지오메트리 하나로 합친다. 좌석 오프셋·크기 적용 완료 */
+/** 배경 동승자(인스턴싱)용: 리프트 착석 모델을 정점 색이 구워진 지오메트리 하나로 합친다. 좌석 오프셋·크기 적용 완료. 실패하면 reject */
 export function loadSeatedGeometry(kind: EquipmentId): Promise<THREE.BufferGeometry> {
   return loadGlb(`rider_${kind}_lift`).then((src) => {
     const root = src.clone(true);
@@ -137,16 +166,20 @@ export function loadSeatedGeometry(kind: EquipmentId): Promise<THREE.BufferGeome
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+      const g = mesh.geometry.clone();
       g.applyMatrix4(mesh.matrixWorld);
-      for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      const c = (mats[0] as THREE.MeshStandardMaterial).color ?? new THREE.Color(0xffffff);
+      const c = (mesh.material as THREE.MeshStandardMaterial).color ?? new THREE.Color(0xffffff);
       const col = new Float32Array(g.attributes.position.count * 3);
-      for (let i = 0; i < col.length; i += 3) col.set([c.r, c.g, c.b], i);
+      for (let i = 0; i < col.length; i += 3) {
+        col[i] = c.r;
+        col[i + 1] = c.g;
+        col[i + 2] = c.b;
+      }
       g.setAttribute('color', new THREE.BufferAttribute(col, 3));
       parts.push(g);
     });
-    return mergeGeometries(parts)!;
+    const merged = mergeGeometries(parts);
+    if (!merged) throw new Error(`착석 지오메트리 병합 실패: ${kind}`);
+    return merged;
   });
 }

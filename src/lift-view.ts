@@ -158,13 +158,16 @@ function buildChairs() {
   Promise.all(KINDS.map(loadSeatedGeometry))
     .then((geos) => {
       const hideAll = new THREE.Matrix4().makeScale(0, 0, 0);
-      glb = geos.map((g) => {
+      // 전부 만든 뒤에 한 번에 붙인다 (중간에 실패해도 씬에 찌꺼기가 남지 않음)
+      const meshes = geos.map((g) => {
         const m = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }), slots);
         m.frustumCulled = false;
+        m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         for (let i = 0; i < slots; i++) m.setMatrixAt(i, hideAll);
-        group.add(m);
         return m;
       });
+      meshes.forEach((m) => group.add(m));
+      glb = meshes;
       jackets.visible = false;
       fixed.visible = false;
     })
@@ -190,9 +193,11 @@ function buildChairs() {
       for (let k = 0; k < LIFT.seats; k++) {
         const slot = i * LIFT.seats + k;
         if (!(mask & (1 << k))) {
-          jackets.setMatrixAt(slot, hide);
-          fixed.setMatrixAt(slot, hide);
-          if (glb) for (const m of glb) m.setMatrixAt(slot, hide);
+          if (glb) for (let j = 0; j < glb.length; j++) glb[j].setMatrixAt(slot, hide);
+          else {
+            jackets.setMatrixAt(slot, hide);
+            fixed.setMatrixAt(slot, hide);
+          }
           continue;
         }
         const [dx, dz] = lateralShift(pose.heading, seatLateral(k));
@@ -202,19 +207,26 @@ function buildChairs() {
           pose.z + dz + Math.cos(pose.heading) * 0.3,
         );
         dummy.updateMatrix();
-        jackets.setMatrixAt(slot, dummy.matrix);
-        fixed.setMatrixAt(slot, dummy.matrix);
         const ci = ambientColor(i, cycle, k);
-        jackets.setColorAt(slot, JACKET_COLORS[ci]);
-        if (glb) glb.forEach((m, j) => m.setMatrixAt(slot, j === ci % 3 ? dummy.matrix : hide));
+        if (glb) {
+          const pick = ci % 3; // 장비 종류는 좌석·주기마다 고정된 해시값으로 정한다
+          for (let j = 0; j < glb.length; j++) glb[j].setMatrixAt(slot, j === pick ? dummy.matrix : hide);
+        } else {
+          jackets.setMatrixAt(slot, dummy.matrix);
+          fixed.setMatrixAt(slot, dummy.matrix);
+          jackets.setColorAt(slot, JACKET_COLORS[ci]);
+        }
       }
     }
     seats.instanceMatrix.needsUpdate = true;
     hangers.instanceMatrix.needsUpdate = true;
-    jackets.instanceMatrix.needsUpdate = true;
-    fixed.instanceMatrix.needsUpdate = true;
-    if (jackets.instanceColor) jackets.instanceColor.needsUpdate = true;
-    if (glb) for (const m of glb) m.instanceMatrix.needsUpdate = true;
+    if (glb) {
+      for (let j = 0; j < glb.length; j++) glb[j].instanceMatrix.needsUpdate = true;
+    } else {
+      jackets.instanceMatrix.needsUpdate = true;
+      fixed.instanceMatrix.needsUpdate = true;
+      if (jackets.instanceColor) jackets.instanceColor.needsUpdate = true;
+    }
   };
   update(0);
   return { group, update };

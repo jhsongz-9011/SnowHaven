@@ -85,8 +85,15 @@ const LANES: Record<EquipmentId, { off: number[]; w: number }> = {
   board: { off: [0], w: 0.16 },
   sled: { off: [-0.38, 0.38], w: 0.06 },
 };
+const MAX_LANES = Math.max(...Object.values(LANES).map((l) => l.off.length));
+const FADE_SAMPLES = 30; // 가장 오래된 쪽 이만큼의 샘플에 걸쳐 옅어진다 (버퍼가 차도 모양이 변하지 않음)
 
-interface Sample { x: number; z: number; rx: number; rz: number; gap: boolean }
+/** 샘플 하나: 레인마다 좌/우 가장자리 정점(높이까지)을 한 번만 계산해 둔다 */
+interface Sample {
+  lanes: number; // 이 샘플의 레인 수 (장비 종류에 따라 다름 → 장비를 바꿔도 이미 남은 자국은 그대로)
+  v: Float32Array; // [lane][좌/우][x,y,z]
+  gap: boolean; // true 면 이 샘플과 다음 샘플 사이는 잇지 않는다
+}
 
 /** 눈 위에 남는 활강 자국 (장비별 모양). 넘어지거나 리프트 탈 때는 끊긴다 */
 export class SkiTracks {
@@ -97,21 +104,27 @@ export class SkiTracks {
   private pos: Float32Array;
   private col: Float32Array;
   private geo: THREE.BufferGeometry;
-  private readonly maxLanes = 2;
+  private posAttr: THREE.BufferAttribute;
+  private colAttr: THREE.BufferAttribute;
 
   constructor() {
-    const quads = ENV_FX.trackPoints * this.maxLanes;
+    const quads = ENV_FX.trackPoints * MAX_LANES;
     this.pos = new Float32Array(quads * 4 * 3);
     this.col = new Float32Array(quads * 4 * 4);
     this.geo = new THREE.BufferGeometry();
-    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
-    this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 4));
+    this.posAttr = new THREE.BufferAttribute(this.pos, 3);
+    this.colAttr = new THREE.BufferAttribute(this.col, 4);
+    this.posAttr.setUsage(THREE.DynamicDrawUsage);
+    this.colAttr.setUsage(THREE.DynamicDrawUsage);
+    this.geo.setAttribute('position', this.posAttr);
+    this.geo.setAttribute('color', this.colAttr);
     const idx: number[] = [];
     for (let q = 0; q < quads; q++) {
       const b = q * 4;
       idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
     }
     this.geo.setIndex(idx);
+    this.geo.setDrawRange(0, 0);
     const mat = new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
@@ -128,47 +141,75 @@ export class SkiTracks {
   update(x: number, z: number, heading: number, active: boolean, kind: EquipmentId) {
     if (!active) {
       const last = this.samples[this.samples.length - 1];
-      if (last && !last.gap) this.samples.push({ ...last, gap: true });
+      if (last && !last.gap) last.gap = true; // 새 샘플을 만들지 않고 마지막 샘플에 끊김 표시만 한다
       this.lastX = NaN;
       return;
     }
     if (!Number.isNaN(this.lastX) && Math.hypot(x - this.lastX, z - this.lastZ) < ENV_FX.trackSpacing) return;
     this.lastX = x;
     this.lastZ = z;
-    this.samples.push({ x, z, rx: Math.cos(heading), rz: -Math.sin(heading), gap: false });
+    this.samples.push(this.makeSample(x, z, heading, kind));
     if (this.samples.length > ENV_FX.trackPoints) this.samples.shift();
-    this.rebuild(kind);
+    this.rebuild();
   }
 
-  private rebuild(kind: EquipmentId) {
+  private makeSample(x: number, z: number, heading: number, kind: EquipmentId): Sample {
     const { off, w } = LANES[kind];
+    const rx = Math.cos(heading);
+    const rz = -Math.sin(heading); // right = up × fwd
+    const v = new Float32Array(off.length * 6);
+    for (let l = 0; l < off.length; l++) {
+      for (let side = 0; side < 2; side++) {
+        const d = off[l] + (side === 0 ? -w : w);
+        const px = x + rx * d;
+        const pz = z + rz * d;
+        const o = l * 6 + side * 3;
+        v[o] = px;
+        v[o + 1] = height(px, pz) + ENV_FX.trackY;
+        v[o + 2] = pz;
+      }
+    }
+    return { lanes: off.length, v, gap: false };
+  }
+
+  /** 저장된 정점을 버퍼에 복사한다 (새 객체/클로저를 만들지 않음) */
+  private rebuild() {
     const s = this.samples;
-    this.pos.fill(0);
+    const pos = this.pos;
+    const col = this.col;
     let q = 0;
-    for (let lane = 0; lane < off.length; lane++) {
-      for (let i = 0; i + 1 < s.length; i++) {
-        const a = s[i], b = s[i + 1];
-        if (a.gap || b.gap) continue;
-        const fa = Math.min(1, (i / s.length) * 3); // 오래된 자국일수록 옅어짐
-        const fb = Math.min(1, ((i + 1) / s.length) * 3);
-        const verts: [Sample, number][] = [[a, -w], [a, w], [b, -w], [b, w]];
-        verts.forEach(([p, d], k) => {
-          const px = p.x + p.rx * (off[lane] + d);
-          const pz = p.z + p.rz * (off[lane] + d);
-          const vi = (q * 4 + k) * 3;
-          this.pos[vi] = px;
-          this.pos[vi + 1] = height(px, pz) + ENV_FX.trackY;
-          this.pos[vi + 2] = pz;
-          const ci = (q * 4 + k) * 4;
+    for (let i = 0; i + 1 < s.length; i++) {
+      const a = s[i];
+      const b = s[i + 1];
+      if (a.gap) continue;
+      const lanes = Math.min(a.lanes, b.lanes);
+      const fa = Math.min(1, i / FADE_SAMPLES);
+      const fb = Math.min(1, (i + 1) / FADE_SAMPLES);
+      for (let l = 0; l < lanes; l++) {
+        const base = q * 12;
+        const cb = q * 16;
+        // 정점 순서: a좌, a우, b좌, b우
+        for (let k = 0; k < 6; k++) {
+          pos[base + k] = a.v[l * 6 + k];
+          pos[base + 6 + k] = b.v[l * 6 + k];
+        }
+        for (let k = 0; k < 4; k++) {
           const f = k < 2 ? fa : fb;
-          this.col[ci] = 0.5; this.col[ci + 1] = 0.62; this.col[ci + 2] = 0.76;
-          this.col[ci + 3] = 0.7 * f;
-        });
+          const c = cb + k * 4;
+          col[c] = 0.5;
+          col[c + 1] = 0.62;
+          col[c + 2] = 0.76;
+          col[c + 3] = 0.7 * f;
+        }
         q++;
       }
     }
     this.geo.setDrawRange(0, q * 6);
-    this.geo.attributes.position.needsUpdate = true;
-    this.geo.attributes.color.needsUpdate = true;
+    this.posAttr.clearUpdateRanges();
+    this.colAttr.clearUpdateRanges();
+    this.posAttr.addUpdateRange(0, q * 12);
+    this.colAttr.addUpdateRange(0, q * 16);
+    this.posAttr.needsUpdate = true;
+    this.colAttr.needsUpdate = true;
   }
 }
