@@ -1,13 +1,14 @@
 // 장비별 라이더 모델 (단순한 저폴리 캐릭터)
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { EquipmentId } from './sim/equipment';
 
 // ── GLB 캐릭터 (Blender 제작) ─────────────────────────────
 /** 모델 크기 배율 (감각 조정용) */
 export const MODEL_SCALE = 1.25;
 /** 리프트 착석 모델 오프셋: 모델 골반이 좌석 바닥보다 얼마나 위/앞에 오는지 */
-const SEAT_OFFSET = { y: -0.42, z: 0.15 };
+const SEAT_OFFSET = { y: -0.34, z: 0.2 };
 
 const loader = new GLTFLoader();
 const gltfCache = new Map<string, Promise<THREE.Group>>();
@@ -19,8 +20,8 @@ function loadGlb(name: string): Promise<THREE.Group> {
   }
   return p;
 }
-/** 임시(프리미티브) 모델을 GLB 가 로드되면 교체한다. 실패하면 임시 모델 유지 */
-function swapInGlb(holder: THREE.Group, name: string, place: (m: THREE.Object3D) => void) {
+/** GLB 가 로드되면 holder 에 넣는다. 로드 중에는 비어 있고(깜빡임 방지), 실패하면 onFail 로 임시 모델을 넣는다 */
+function swapInGlb(holder: THREE.Group, name: string, place: (m: THREE.Object3D) => void, onFail: () => void) {
   loadGlb(name)
     .then((src) => {
       const m = src.clone(true); // geometry/material 은 공유, 노드만 복제
@@ -29,7 +30,10 @@ function swapInGlb(holder: THREE.Group, name: string, place: (m: THREE.Object3D)
       holder.clear();
       holder.add(m);
     })
-    .catch((e) => console.warn('GLB 로드 실패, 임시 모델 유지:', name, e));
+    .catch((e) => {
+      console.warn('GLB 로드 실패, 임시 모델 사용:', name, e);
+      onFail();
+    });
 }
 
 const skin = new THREE.MeshLambertMaterial({ color: 0xe8a06a });
@@ -63,8 +67,7 @@ function body(sitting: boolean, y0: number): THREE.Group {
 /** 원점 = 발 아래 표면, +z = 진행 방향 */
 export function buildRider(kind: EquipmentId): THREE.Group {
   const holder = new THREE.Group();
-  holder.add(buildRiderPlaceholder(kind));
-  swapInGlb(holder, `rider_${kind}_ride`, () => {});
+  swapInGlb(holder, `rider_${kind}_ride`, () => {}, () => holder.add(buildRiderPlaceholder(kind)));
   return holder;
 }
 
@@ -93,8 +96,7 @@ function buildRiderPlaceholder(kind: EquipmentId): THREE.Group {
 /** 리프트 의자에 앉은 모습. 원점 = 좌석 바닥 (의자 경로점에서 앞쪽으로 0.3m 이동해 앉는다), +z = 진행 방향 */
 export function buildSeatedRider(kind: EquipmentId): THREE.Group {
   const holder = new THREE.Group();
-  holder.add(buildSeatedPlaceholder(kind));
-  swapInGlb(holder, `rider_${kind}_lift`, (m) => m.position.set(0, SEAT_OFFSET.y, SEAT_OFFSET.z));
+  swapInGlb(holder, `rider_${kind}_lift`, (m) => m.position.set(0, SEAT_OFFSET.y, SEAT_OFFSET.z), () => holder.add(buildSeatedPlaceholder(kind)));
   return holder;
 }
 
@@ -122,4 +124,29 @@ function buildSeatedPlaceholder(kind: EquipmentId): THREE.Group {
   const root = new THREE.Group();
   root.add(g);
   return root;
+}
+
+/** 배경 동승자(인스턴싱)용: 리프트 착석 모델을 정점 색이 구워진 지오메트리 하나로 합친다. 좌석 오프셋·크기 적용 완료 */
+export function loadSeatedGeometry(kind: EquipmentId): Promise<THREE.BufferGeometry> {
+  return loadGlb(`rider_${kind}_lift`).then((src) => {
+    const root = src.clone(true);
+    root.scale.setScalar(MODEL_SCALE);
+    root.position.set(0, SEAT_OFFSET.y, SEAT_OFFSET.z);
+    root.updateMatrixWorld(true);
+    const parts: THREE.BufferGeometry[] = [];
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+      g.applyMatrix4(mesh.matrixWorld);
+      for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const c = (mats[0] as THREE.MeshStandardMaterial).color ?? new THREE.Color(0xffffff);
+      const col = new Float32Array(g.attributes.position.count * 3);
+      for (let i = 0; i < col.length; i += 3) col.set([c.r, c.g, c.b], i);
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      parts.push(g);
+    });
+    return mergeGeometries(parts)!;
+  });
 }

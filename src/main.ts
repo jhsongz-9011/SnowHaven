@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Input } from './input';
 import { buildRider, buildSeatedRider } from './rider';
+import { SnowFx } from './snow-fx';
+import { Snowfall, SkiTracks } from './env-fx';
 import { buildWorld } from './world';
 import { buildLift } from './lift-view';
 import { buildObstacles } from './obstacle-view';
@@ -95,6 +97,12 @@ const riderRoot = new THREE.Group(); // 위치와 표면 정렬
 const riderLean = new THREE.Group(); // 턴할 때 기울기
 riderRoot.add(riderLean);
 scene.add(riderRoot);
+const snowFx = new SnowFx();
+scene.add(snowFx.points);
+const snowfall = new Snowfall();
+scene.add(snowfall.points);
+const tracks = new SkiTracks();
+scene.add(tracks.mesh);
 let riderModel: THREE.Group | null = null;
 let modelIsSeated = false;
 let freeCam = false; // 디버그: true 면 카메라를 건드리지 않음
@@ -344,6 +352,19 @@ function updateRider(dt: number) {
     riderLean.rotation.set(0, 0, lean);
     riderLean.position.y = 0;
   }
+  const crashed = player.crashes > lastCrashes;
+  snowFx.update(
+    dt,
+    riderRoot.position,
+    fwd,
+    right,
+    pose.up,
+    mode === 'ski' && player.status === 'ride',
+    player.speed,
+    player.turnVel,
+    crashed ? 70 : player.status === 'fallen' && player.speed > 4 ? 2 : 0,
+  );
+  tracks.update(x, z, heading, mode === 'ski' && player.status === 'ride' && player.speed > 3, equipment);
   if (player.crashes !== lastCrashes) {
     if (player.crashes > lastCrashes) shake = 1; // 부딪힌 순간 화면이 크게 흔들림
     lastCrashes = player.crashes;
@@ -460,6 +481,7 @@ function frame(now: number) {
   liftView.update(renderT);
   obstacleView.update(renderT);
   updateRider(dt);
+  snowfall.update(dt, now / 1000, camera.position);
   updateHud();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
@@ -486,6 +508,7 @@ if (import.meta.env.DEV) {
       return liftT;
     },
     camera,
+    tracks,
     set freeCam(v: boolean) {
       freeCam = v;
     },

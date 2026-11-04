@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { centerX } from './sim/terrain';
+import { loadSeatedGeometry } from './rider';
+import type { EquipmentId } from './sim/equipment';
 import {
   LIFT, STATIONS, TOWERS, CHAIR_COUNT, PATH_LENGTH, AMBIENT_END_S, chairS, chairCycle, ambientMask, ambientColor,
   seatLateral, lateralShift, poseAt, cableVertices, type Station, type LiftPose,
@@ -150,6 +152,24 @@ function buildChairs() {
   jackets.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(slots * 3), 3);
   group.add(jackets, fixed);
 
+  // GLB 캐릭터가 로드되면 박스 동승자를 대체한다 (장비 3종 × 인스턴싱, 좌석마다 장비를 섞어 태움)
+  const KINDS: EquipmentId[] = ['ski', 'board', 'sled'];
+  let glb: THREE.InstancedMesh[] | null = null;
+  Promise.all(KINDS.map(loadSeatedGeometry))
+    .then((geos) => {
+      const hideAll = new THREE.Matrix4().makeScale(0, 0, 0);
+      glb = geos.map((g) => {
+        const m = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }), slots);
+        m.frustumCulled = false;
+        for (let i = 0; i < slots; i++) m.setMatrixAt(i, hideAll);
+        group.add(m);
+        return m;
+      });
+      jackets.visible = false;
+      fixed.visible = false;
+    })
+    .catch((e) => console.warn('동승자 GLB 로드 실패, 박스 모델 유지', e));
+
   const dummy = new THREE.Object3D();
   const hide = new THREE.Matrix4().makeScale(0, 0, 0);
   const pose: LiftPose = { x: 0, y: 0, z: 0, heading: 0 };
@@ -172,6 +192,7 @@ function buildChairs() {
         if (!(mask & (1 << k))) {
           jackets.setMatrixAt(slot, hide);
           fixed.setMatrixAt(slot, hide);
+          if (glb) for (const m of glb) m.setMatrixAt(slot, hide);
           continue;
         }
         const [dx, dz] = lateralShift(pose.heading, seatLateral(k));
@@ -183,7 +204,9 @@ function buildChairs() {
         dummy.updateMatrix();
         jackets.setMatrixAt(slot, dummy.matrix);
         fixed.setMatrixAt(slot, dummy.matrix);
-        jackets.setColorAt(slot, JACKET_COLORS[ambientColor(i, cycle, k)]);
+        const ci = ambientColor(i, cycle, k);
+        jackets.setColorAt(slot, JACKET_COLORS[ci]);
+        if (glb) glb.forEach((m, j) => m.setMatrixAt(slot, j === ci % 3 ? dummy.matrix : hide));
       }
     }
     seats.instanceMatrix.needsUpdate = true;
@@ -191,6 +214,7 @@ function buildChairs() {
     jackets.instanceMatrix.needsUpdate = true;
     fixed.instanceMatrix.needsUpdate = true;
     if (jackets.instanceColor) jackets.instanceColor.needsUpdate = true;
+    if (glb) for (const m of glb) m.instanceMatrix.needsUpdate = true;
   };
   update(0);
   return { group, update };
