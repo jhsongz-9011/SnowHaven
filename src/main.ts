@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { Input } from './input';
 import { buildRider, buildSeatedRider } from './rider';
 import { SnowFx, SNOW_FX } from './snow-fx';
+import { applyFallPose } from './rider-motion';
+import { Net } from './net/net';
+import type { PlayerView } from './net/protocol';
 import { Snowfall, SkiTracks } from './env-fx';
 import { buildWorld } from './world';
 import { buildLift } from './lift-view';
@@ -103,6 +106,8 @@ const snowfall = new Snowfall();
 scene.add(snowfall.points);
 const tracks = new SkiTracks();
 scene.add(tracks.mesh);
+const net = new Net(); // 서버가 없으면 조용히 재시도만 하고 혼자 플레이된다
+scene.add(net.remotes.group);
 let riderModel: THREE.Group | null = null;
 let modelIsSeated = false;
 let freeCam = false; // 디버그: true 면 카메라를 건드리지 않음
@@ -122,6 +127,29 @@ function applyModel() {
   riderModel = next;
   modelIsSeated = seated;
   riderLean.add(riderModel);
+}
+
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+/** 서버로 보낼 내 상태 (모든 모드 공통: 월드 위치·방향 + 모델 종류) */
+function buildMyView(): PlayerView {
+  const pose = currentPose();
+  const skiing = mode === 'ski';
+  return {
+    eq: equipment,
+    seated: mode === 'riding',
+    st: skiing ? player.status : 'ride',
+    stT: r3(skiing ? player.statusT : 0),
+    crashes: player.crashes,
+    x: r3(pose.x),
+    y: r3(pose.y),
+    z: r3(pose.z),
+    h: r3(pose.heading),
+    ux: r3(pose.up.x),
+    uy: r3(pose.up.y),
+    uz: r3(pose.up.z),
+    sp: r3(skiing ? player.speed : 0),
+    tv: r3(skiing ? player.turnVel : 0),
+  };
 }
 
 function setEquipment(id: EquipmentId) {
@@ -315,24 +343,6 @@ function currentPose(): Pose {
 
 let lastCrashes = 0;
 let shake = 0;
-const easeOut = (u: number) => 1 - (1 - u) * (1 - u);
-
-/** 넘어진 모양: 앞으로 굴러 넘어지며(튕겨 오름) 옆으로 눕고, 일어날 때 다시 선다 */
-function applyFallPose() {
-  const side = player.crashes % 2 === 0 ? 1 : -1; // 넘어지는 쪽은 번갈아
-  const LIE = 1.45; // 옆으로 누운 각도 (rad)
-  if (player.status === 'fallen') {
-    const u = Math.min(1, player.statusT / CRASH.tumbleTime);
-    // 앞으로 한 바퀴 굴러서(끝 자세 = 시작 자세) 옆으로 눕는다
-    riderLean.rotation.set(-easeOut(u) * Math.PI * 2, 0, side * LIE * easeOut(u));
-    riderLean.position.y = 0.3 * easeOut(u) + Math.sin(Math.PI * u) * 1.3; // 튕겨 오른 뒤 내려앉음
-  } else {
-    const u = Math.min(1, player.statusT / CRASH.getupTime);
-    riderLean.rotation.set(0, 0, side * LIE * (1 - easeOut(u)));
-    riderLean.position.y = 0.3 * (1 - easeOut(u)) + Math.sin(Math.PI * u) * 0.15;
-  }
-}
-
 function updateRider(dt: number) {
   const pose = currentPose();
   const { x, z, heading } = pose;
@@ -357,7 +367,7 @@ function updateRider(dt: number) {
   tuck += (targetTuck - tuck) * k;
   twist += (targetTwist - twist) * k;
   if (mode === 'ski' && player.status !== 'ride') {
-    applyFallPose();
+    applyFallPose(riderLean, player.status, player.statusT, player.crashes);
   } else {
     riderLean.rotation.set(tuck, twist, lean);
     riderLean.position.y = 0;
@@ -492,6 +502,7 @@ function frame(now: number) {
   liftView.update(renderT);
   obstacleView.update(renderT);
   updateRider(dt);
+  net.tick(dt, now, buildMyView);
   snowfall.update(dt, now / 1000, camera.position);
   updateHud();
   renderer.render(scene, camera);
@@ -521,6 +532,7 @@ if (import.meta.env.DEV) {
     camera,
     tracks,
     riderLean,
+    net,
     set freeCam(v: boolean) {
       freeCam = v;
     },
