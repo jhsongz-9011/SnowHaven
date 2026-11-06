@@ -106,7 +106,10 @@ function buildStation(st: Station, turnZ: number): THREE.Group {
   return g;
 }
 
+/** GLB 동승자용 색조: 정점 색에 곱해져 같은 장비끼리도 옷 분위기가 달라 보인다 (흰색 쪽으로 섞어 피부·장비 색이 크게 변하지 않게) */
+const TINT_STRENGTH = 0.55;
 const JACKET_COLORS = [0xf2b630, 0x2f8f6b, 0x7b5cd6, 0xe0573d, 0x2b7fd0, 0xd04f8a, 0x38b6c4, 0x8a9a3a].map((c) => new THREE.Color(c));
+const TINT_COLORS = JACKET_COLORS.map((c) => new THREE.Color(0xffffff).lerp(c, TINT_STRENGTH));
 
 function colored(g: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
   const c = new THREE.Color(hex);
@@ -209,8 +212,9 @@ function buildChairs() {
         dummy.updateMatrix();
         const ci = ambientColor(i, cycle, k);
         if (glb) {
-          const pick = ci % 3; // 장비 종류는 좌석·주기마다 고정된 해시값으로 정한다
+          const pick = (i + k + cycle) % 3; // 장비 종류와 색은 서로 다른 해시로 정해 조합이 다양해진다
           for (let j = 0; j < glb.length; j++) glb[j].setMatrixAt(slot, j === pick ? dummy.matrix : hide);
+          glb[pick].setColorAt(slot, TINT_COLORS[ci]);
         } else {
           jackets.setMatrixAt(slot, dummy.matrix);
           fixed.setMatrixAt(slot, dummy.matrix);
@@ -221,7 +225,11 @@ function buildChairs() {
     seats.instanceMatrix.needsUpdate = true;
     hangers.instanceMatrix.needsUpdate = true;
     if (glb) {
-      for (let j = 0; j < glb.length; j++) glb[j].instanceMatrix.needsUpdate = true;
+      for (let j = 0; j < glb.length; j++) {
+        glb[j].instanceMatrix.needsUpdate = true;
+        const ic = glb[j].instanceColor;
+        if (ic) ic.needsUpdate = true;
+      }
     } else {
       jackets.instanceMatrix.needsUpdate = true;
       fixed.instanceMatrix.needsUpdate = true;

@@ -196,10 +196,10 @@ export class SkiTracks {
         for (let k = 0; k < 4; k++) {
           const f = k < 2 ? fa : fb;
           const c = cb + k * 4;
-          col[c] = 0.5;
-          col[c + 1] = 0.62;
-          col[c + 2] = 0.76;
-          col[c + 3] = 0.7 * f;
+          col[c] = 0.42;
+          col[c + 1] = 0.54;
+          col[c + 2] = 0.7;
+          col[c + 3] = 0.85 * f;
         }
         q++;
       }
