@@ -502,7 +502,7 @@ function frame(now: number) {
   liftView.update(renderT);
   obstacleView.update(renderT);
   updateRider(dt);
-  net.tick(dt, now, buildMyView);
+  net.tick(dt, now, buildMyView, camera.position);
   snowfall.update(dt, now / 1000, camera.position);
   updateHud();
   renderer.render(scene, camera);

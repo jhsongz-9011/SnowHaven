@@ -1,11 +1,12 @@
 // 멀티플레이어 서버: 각 클라이언트가 보내는 자기 상태를 모아 주기적으로 모두에게 뿌린다 (릴레이, 서버 시뮬레이션 없음).
 import type { IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { NET, parsePlayerView, type PlayerView, type ServerMsg } from '../src/net/protocol';
+import { NET, parsePlayerView, randomNickname, type PlayerView, type ServerMsg } from '../src/net/protocol';
 
 interface Conn {
   id: number;
   ip: string;
+  name: string;
   ws: WebSocket;
   view: PlayerView | null;
   lastSeen: number;
@@ -57,9 +58,13 @@ export function startServer(port = Number(process.env.PORT ?? NET.port)) {
       return;
     }
     const now = Date.now();
-    const c: Conn = { id: nextId++, ip, ws, view: null, lastSeen: now, winStart: now, winCount: 0 };
+    const taken = new Set([...conns.values()].map((o) => o.name));
+    let name = randomNickname();
+    for (let i = 0; i < 20 && taken.has(name); i++) name = randomNickname(); // 겹치면 다시 뽑는다
+    const c: Conn = { id: nextId++, ip, name, ws, view: null, lastSeen: now, winStart: now, winCount: 0 };
     conns.set(c.id, c);
-    send(ws, { t: 'hello', id: c.id });
+    send(ws, { t: 'hello', id: c.id, name, names: [...conns.values()].map((o) => ({ id: o.id, name: o.name })) });
+    broadcast({ t: 'join', id: c.id, name }, c.id);
 
     ws.on('message', (data) => {
       const t = Date.now();

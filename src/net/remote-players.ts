@@ -11,11 +11,35 @@ import { parsePlayerView, type EquipId, type PlayerView } from './protocol';
 export const REMOTE = {
   follow: 14, // 목표 위치를 따라가는 빠르기 (1/s). 클수록 즉각, 작을수록 부드럽지만 늦음
   maxExtrapolate: 0.15, // 마지막 상태 이후 속도로 앞질러 그리는 최대 시간 (s)
+  labelDist: 70, // 이름표가 보이는 최대 거리 (m)
   teleportDist: 25, // 이보다 멀어지면 보간하지 않고 바로 이동 (리스폰 등)
 };
 
+/** 이름표: 캔버스에 그린 글자를 스프라이트로 머리 위에 띄운다 */
+function makeLabel(text: string): THREE.Sprite {
+  const cv = document.createElement('canvas');
+  cv.width = 256;
+  cv.height = 48;
+  const g = cv.getContext('2d')!;
+  g.font = 'bold 26px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = 6;
+  g.strokeStyle = 'rgba(20,40,70,0.85)';
+  g.strokeText(text, 128, 25, 244);
+  g.fillStyle = '#fff';
+  g.fillText(text, 128, 25, 244);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  spr.scale.set(2.6, 0.49, 1);
+  spr.position.y = 2.3;
+  return spr;
+}
+
 class Remote {
   readonly root = new THREE.Group();
+  private label: THREE.Sprite | null = null;
   private readonly lean = new THREE.Group();
   private model: THREE.Group | null = null;
   private modelKey = '';
@@ -38,6 +62,32 @@ class Remote {
     this.v = v;
     this.recvAt = now;
     this.root.add(this.lean);
+  }
+
+  setName(name: string | undefined) {
+    if (!name || this.label?.userData.name === name) return;
+    this.disposeLabel();
+    this.label = makeLabel(name);
+    this.label.userData.name = name;
+    this.root.add(this.label);
+  }
+
+  private disposeLabel() {
+    if (!this.label) return;
+    this.root.remove(this.label);
+    const m = this.label.material as THREE.SpriteMaterial;
+    m.map?.dispose();
+    m.dispose();
+    this.label = null;
+  }
+
+  dispose() {
+    this.disposeLabel();
+  }
+
+  /** 멀리 있으면 이름표를 숨긴다 */
+  setLabelVisible(show: boolean) {
+    if (this.label) this.label.visible = show;
   }
 
   setTarget(v: PlayerView, now: number) {
@@ -106,6 +156,12 @@ class Remote {
 export class RemotePlayers {
   readonly group = new THREE.Group();
   private readonly map = new Map<number, Remote>();
+  private readonly names = new Map<number, string>();
+
+  setName(id: number, name: string) {
+    this.names.set(id, name);
+    this.map.get(id)?.setName(name);
+  }
 
   /** 서버 스냅샷 반영. selfId 는 제외한다 */
   applySnapshot(list: Array<{ id: number; v: PlayerView }>, selfId: number, now: number) {
@@ -120,31 +176,37 @@ export class RemotePlayers {
       if (r) r.setTarget(v, now);
       else {
         const n = new Remote(v, now);
+        n.setName(this.names.get(id));
         this.map.set(id, n);
         this.group.add(n.root);
       }
     }
     // 스냅샷에 없는 사람은 나갔다고 본다 (left 메시지를 놓쳤을 때의 안전장치)
-    for (const id of [...this.map.keys()]) if (!alive.has(id)) this.remove(id);
+    for (const id of [...this.map.keys()]) if (!alive.has(id)) this.remove(id, false);
   }
 
-  remove(id: number) {
+  /** forgetName: 명시적으로 나간 경우에만 이름을 지운다 (스냅샷에서 잠깐 빠진 경우엔 유지) */
+  remove(id: number, forgetName = true) {
+    if (forgetName) this.names.delete(id);
     const r = this.map.get(id);
     if (!r) return;
     this.group.remove(r.root);
+    r.dispose();
     this.map.delete(id);
   }
 
   clear() {
     for (const id of [...this.map.keys()]) this.remove(id);
+    this.names.clear();
   }
 
-  update(dt: number, now: number) {
+  update(dt: number, now: number, camPos?: THREE.Vector3) {
     for (const [id, r] of this.map) {
       try {
         r.update(dt, now);
+        if (camPos) r.setLabelVisible(r.root.position.distanceToSquared(camPos) < REMOTE.labelDist * REMOTE.labelDist);
       } catch {
-        this.remove(id); // 한 명의 오류가 렌더 루프를 멈추지 않게
+        this.remove(id, false); // 한 명의 오류가 렌더 루프를 멈추지 않게
       }
     }
   }

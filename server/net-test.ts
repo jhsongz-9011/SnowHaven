@@ -18,12 +18,16 @@ const view = (over: Partial<PlayerView> = {}): PlayerView => ({
 class TestClient {
   ws: WebSocket;
   id = 0;
+  name = '';
   msgs: ServerMsg[] = [];
   constructor(port: number) {
     this.ws = new WebSocket(`ws://127.0.0.1:${port}`);
     this.ws.on('message', (d) => {
       const m = JSON.parse(d.toString()) as ServerMsg;
-      if (m.t === 'hello') this.id = m.id;
+      if (m.t === 'hello') {
+        this.id = m.id;
+        this.name = m.name;
+      }
       this.msgs.push(m);
     });
   }
@@ -38,8 +42,14 @@ async function main() {
   const a = new TestClient(srv.port);
   const b = new TestClient(srv.port);
   await Promise.all([a.open(), b.open()]);
+  await sleep(50);
+  ok(a.msgs.some((m) => m.t === 'join' && m.id === b.id && m.name === b.name), '기존 접속자는 새 접속자의 join(닉네임)을 받는다');
+  ok(!b.msgs.some((m) => m.t === 'join' && m.id === b.id), 'join 은 본인에게는 가지 않는다');
   await sleep(100);
   ok(a.id > 0 && b.id > 0 && a.id !== b.id, '접속하면 서로 다른 id 를 받는다');
+
+  ok(/^\S+ \S+ \S+$/.test(a.name) && a.name !== b.name, '접속하면 서로 다른 랜덤 닉네임(사물 색 동물)을 받는다');
+  ok(b.msgs.some((m) => m.t === 'hello' && m.names.some((n) => n.id === a.id && n.name === a.name)), '새로 들어온 사람은 기존 사람들의 닉네임을 받는다');
 
   a.sendView(view({ x: 42 }));
   await sleep(200);
