@@ -23,6 +23,22 @@ export interface Equipment {
   brakeTime: number;
   /** 입력이 없을 때 폴라인으로 돌아오려는 힘 (1/s) */
   fallPull: number;
+  /** 라이더 연출 (시뮬레이션에는 영향 없음) */
+  look: RideLook;
+}
+
+/** 타는 동안 몸 연출 파라미터 (rad 단위). 감각 조정은 여기 숫자만 바꾸면 된다 */
+export interface RideLook {
+  /** 턴 속도 1 rad/s 당 옆으로 기우는 각 */
+  leanPerTurn: number;
+  /** 옆으로 기우는 최대 각 */
+  maxLean: number;
+  /** 최고 속도에서 앞으로 숙이는 각 (속도 비례, 웅크림) */
+  tuckAtTop: number;
+  /** 턴 속도 1 rad/s 당 몸이 진행 방향에서 비틀리는 각 (턴 쪽으로 어깨가 먼저 돈다) */
+  twistPerTurn: number;
+  /** 기울기가 목표를 따라가는 빠르기 (1/s). 클수록 즉각 반응 */
+  response: number;
 }
 
 const DEG = Math.PI / 180;
@@ -41,6 +57,7 @@ export const EQUIPMENT: Record<EquipmentId, Equipment> = {
     accelTime: 2.0,
     brakeTime: 0.9,
     fallPull: 0.6,
+    look: { leanPerTurn: 0.22, maxLean: 0.5, tuckAtTop: 0.32, twistPerTurn: 0.12, response: 9 },
   },
   // 턴이 어렵고(둔하고) 속도는 빠름
   board: {
@@ -55,6 +72,8 @@ export const EQUIPMENT: Record<EquipmentId, Equipment> = {
     accelTime: 1.6,
     brakeTime: 1.4,
     fallPull: 0.35,
+    // 보드는 둔한 대신 크게 눕듯이 기울고, 몸이 많이 비틀린다
+    look: { leanPerTurn: 0.34, maxLean: 0.65, tuckAtTop: 0.22, twistPerTurn: 0.2, response: 6 },
   },
   // 회전 없음, 약간의 각도 조절만. 속도는 최상
   sled: {
@@ -69,6 +88,8 @@ export const EQUIPMENT: Record<EquipmentId, Equipment> = {
     accelTime: 1.4,
     brakeTime: 2.0,
     fallPull: 0,
+    // 썰매는 거의 안 기울고 속도가 빠르면 낮게 엎드린다
+    look: { leanPerTurn: 0.12, maxLean: 0.22, tuckAtTop: 0.18, twistPerTurn: 0.05, response: 7 },
   },
 };
 

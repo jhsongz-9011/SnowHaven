@@ -271,7 +271,9 @@ const fwd = new THREE.Vector3();
 const right = new THREE.Vector3();
 const basis = new THREE.Matrix4();
 let camHeading = player.heading;
-let lean = 0;
+let lean = 0; // 옆 기울기 (롤)
+let tuck = 0; // 앞으로 숙임 (피치)
+let twist = 0; // 몸 비틀림 (요)
 const camPos = new THREE.Vector3();
 const lookTarget = new THREE.Vector3();
 const lookSmooth = new THREE.Vector3();
@@ -344,12 +346,20 @@ function updateRider(dt: number) {
   riderRoot.quaternion.setFromRotationMatrix(basis);
   riderRoot.position.set(x, y, z);
 
-  const targetLean = mode === 'ski' ? THREE.MathUtils.clamp(-player.turnVel * 0.22, -0.5, 0.5) : 0;
-  lean += (targetLean - lean) * Math.min(1, dt * 8);
+  // 타는 연출: 턴 쪽으로 기울고, 빠를수록 웅크리며, 턴 쪽으로 어깨가 먼저 돈다 (파라미터는 equipment.ts 의 look)
+  const look = EQUIPMENT[equipment].look;
+  const riding = mode === 'ski' && player.status === 'ride';
+  const targetLean = riding ? THREE.MathUtils.clamp(-player.turnVel * look.leanPerTurn, -look.maxLean, look.maxLean) : 0;
+  const targetTuck = riding ? look.tuckAtTop * Math.min(1, player.speed / EQUIPMENT[equipment].maxSpeed) : 0;
+  const targetTwist = riding ? THREE.MathUtils.clamp(player.turnVel * look.twistPerTurn, -0.4, 0.4) : 0;
+  const k = Math.min(1, dt * look.response);
+  lean += (targetLean - lean) * k;
+  tuck += (targetTuck - tuck) * k;
+  twist += (targetTwist - twist) * k;
   if (mode === 'ski' && player.status !== 'ride') {
     applyFallPose();
   } else {
-    riderLean.rotation.set(0, 0, lean);
+    riderLean.rotation.set(tuck, twist, lean);
     riderLean.position.y = 0;
   }
   const crashed = player.crashes > lastCrashes;
@@ -510,6 +520,7 @@ if (import.meta.env.DEV) {
     },
     camera,
     tracks,
+    riderLean,
     set freeCam(v: boolean) {
       freeCam = v;
     },
