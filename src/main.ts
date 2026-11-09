@@ -67,10 +67,10 @@ let chair = -1;
 let mySeat = 0;
 /** 테스트 버전: 우측 상단 '정상으로' 버튼 표시 (정식 버전에서는 false) */
 const SHOW_SKIP = true;
-/** 리프트 3인칭 카메라 (m): 의자 옆 코스 쪽 / 뒤쪽 / 위쪽으로 떨어져서 앉아 있는 모습을 보여준다 */
-const RIDE_CAM = { side: 5.2, back: 3.2, up: 1.7, fov: 58 };
-/** 시선 목표: 의자 기준 코스 쪽으로 치우친 점 → 화면 한쪽에 라이더, 반대쪽에 슬로프가 보인다 */
-const RIDE_LOOK = { side: 1.6, ahead: 1.5, up: 0.9 };
+/** 리프트 3인칭 카메라 (m): 옆(side: 양수 = 코스 쪽, 음수 = 코스 반대쪽) / 뒤쪽 / 위쪽. 코스 반대쪽 옆뒤에서 앉은 모습을 보여주고, 라이더 너머로 코스가 보인다 */
+const RIDE_CAM = { side: -3.4, back: 4.6, up: 1.9, fov: 58 };
+/** 시선 목표: 의자 기준 코스 쪽으로 약간 치우친 점 → 라이더 너머로 슬로프가 보인다 */
+const RIDE_LOOK = { side: 1.2, ahead: 1.5, up: 0.9 };
 
 interface Pose {
   x: number;
@@ -423,9 +423,9 @@ function updateRider(dt: number) {
   const speedK = Math.min(1, viewSpeed / TOP_SPEED);
   let dist = 9 + speedK * 3;
   let h = 4.2 + speedK * 0.8;
-  let lateral = 0; // 코스 쪽으로 카메라를 옮겨 케이블이 화면 중앙을 가로지르지 않게 함
+  let lateral = 0; // 카메라 옆 이동 (m, 양수 = 코스 쪽, 음수 = 코스 반대쪽). 기본은 코스 쪽으로 옮겨 케이블이 화면 중앙을 가로지르지 않게 함
   if (mode === 'riding') {
-    // 3인칭: 코스 쪽 옆뒤에서 의자에 앉은 라이더를 바라본다 (배경으로 슬로프와 활강하는 사람들이 보인다)
+    // 3인칭: 코스 반대쪽 옆뒤에서 의자에 앉은 라이더를 바라본다 (라이더 너머로 슬로프와 활강하는 사람들이 보인다)
     dist = RIDE_CAM.back;
     h = RIDE_CAM.up;
     lateral = RIDE_CAM.side;
