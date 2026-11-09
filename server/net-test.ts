@@ -2,7 +2,7 @@
 import { WebSocket } from 'ws';
 import { startServer } from './index';
 import { ANOMALY, MoveTracker } from './anomaly';
-import { NET, type PlayerView, type ServerMsg } from '../src/net/protocol';
+import { COLORS, NET, randomNickname, type PlayerView, type ServerMsg } from '../src/net/protocol';
 
 let fails = 0;
 const ok = (cond: boolean, name: string) => {
@@ -49,7 +49,8 @@ async function main() {
   await sleep(100);
   ok(a.id > 0 && b.id > 0 && a.id !== b.id, '접속하면 서로 다른 id 를 받는다');
 
-  ok(/^\S+ \S+ \S+$/.test(a.name) && a.name !== b.name, '접속하면 서로 다른 랜덤 닉네임(사물 색 동물)을 받는다');
+  ok(/^\S+ \S+ \S+$/.test(a.name) && a.name !== b.name, '접속하면 서로 다른 랜덤 닉네임(색 사물 동물)을 받는다');
+  ok([a.name, b.name, ...Array.from({ length: 50 }, () => randomNickname())].every((n) => COLORS.includes(n.split(' ')[0])), '닉네임은 색 이름으로 시작한다');
   ok(b.msgs.some((m) => m.t === 'hello' && m.names.some((n) => n.id === a.id && n.name === a.name)), '새로 들어온 사람은 기존 사람들의 닉네임을 받는다');
 
   a.sendView(view({ x: 42 }));

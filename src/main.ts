@@ -11,7 +11,7 @@ import { buildLift } from './lift-view';
 import { buildObstacles } from './obstacle-view';
 import { CRASH, EQUIPMENT, EQUIPMENT_ORDER, TOP_SPEED, type EquipmentId } from './sim/equipment';
 import { createPlayer, stepPlayer, wrapAngle, type PlayerState } from './sim/physics';
-import { COURSE, centerX, fallLine, height, normal } from './sim/terrain';
+import { COURSE, fallLine, height, normal } from './sim/terrain';
 import {
   LIFT, BOARD_POINT, BOARD_S, UNLOAD_POINT, UNLOAD_S, CHAIR_COUNT, RIDE_LENGTH, chairS, chairCycle, ambientMask, freeSeat,
   seatLateral, lateralShift, crossed, poseAt, type LiftPose,
@@ -67,10 +67,10 @@ let chair = -1;
 let mySeat = 0;
 /** 테스트 버전: 우측 상단 '정상으로' 버튼 표시 (정식 버전에서는 false) */
 const SHOW_SKIP = true;
-/** 리프트 위에서 시선이 향하는, 진행 방향 앞쪽 거리 (m). 코스 중앙선 위의 점을 바라본다 */
-const RIDE_LOOK_AHEAD = 40;
-/** 리프트 위에서 아래로 내려다보는 최대 각도 (rad). 리프트가 슬로프보다 높아서 제한하지 않으면 사면만 보인다 */
-const RIDE_MAX_PITCH = (14 * Math.PI) / 180;
+/** 리프트 3인칭 카메라 (m): 의자 옆 코스 쪽 / 뒤쪽 / 위쪽으로 떨어져서 앉아 있는 모습을 보여준다 */
+const RIDE_CAM = { side: 5.2, back: 3.2, up: 1.7, fov: 58 };
+/** 시선 목표: 의자 기준 코스 쪽으로 치우친 점 → 화면 한쪽에 라이더, 반대쪽에 슬로프가 보인다 */
+const RIDE_LOOK = { side: 1.6, ahead: 1.5, up: 0.9 };
 
 interface Pose {
   x: number;
@@ -259,7 +259,7 @@ function updateUi() {
     label = '취소';
     hint = TOUCH ? '빈 의자가 오면 자동으로 탑승해요' : '빈 자리가 있는 의자가 오면 자동으로 탑승합니다 · E 취소';
   } else if (mode === 'riding') {
-    hint = TOUCH ? '올라가는 중… 장비는 지금 바꿔도 돼요' : '코스를 바라보며 올라가는 중… 장비는 지금 바꿔도 됩니다 (1 · 2 · 3)';
+    hint = TOUCH ? '올라가는 중… 장비는 지금 바꿔도 돼요' : '올라가는 중… 장비는 지금 바꿔도 됩니다 (1 · 2 · 3)';
   } else if (mode === 'transfer') {
     hint = '이동 중…';
   } else if (mode === 'ski') {
@@ -328,6 +328,8 @@ const camPos = new THREE.Vector3();
 const lookTarget = new THREE.Vector3();
 const lookSmooth = new THREE.Vector3();
 let lookInit = false;
+/** 리프트 탑승 카메라 고정도 (0 → 1): 탑승 직후에는 부드럽게 다가가고, 이후에는 의자에 단단히 붙어 따라간다 (의자가 빨라서 느슨하게 따라가면 라이더가 화면 밖으로 밀림) */
+let rideLock = 0;
 
 const chairPose: LiftPose = { x: 0, y: 0, z: 0, heading: 0 };
 const poseOut: Pose = { x: 0, y: 0, z: 0, heading: 0, up: new THREE.Vector3(0, 1, 0) };
@@ -423,13 +425,15 @@ function updateRider(dt: number) {
   let h = 4.2 + speedK * 0.8;
   let lateral = 0; // 코스 쪽으로 카메라를 옮겨 케이블이 화면 중앙을 가로지르지 않게 함
   if (mode === 'riding') {
-    // 의자에 앉아 코스(왼쪽)를 바라본다: 시선 = 진행 방향 앞쪽 코스 중앙선 위의 점 → 활강하는 사람들이 보인다
-    dist = 4.2;
-    h = 2.2;
-    lateral = 0.8;
-    const zt = z + Math.cos(camHeading) * RIDE_LOOK_AHEAD;
-    const xt = centerX(zt);
-    lookTarget.set(xt, height(xt, zt) + 2.5, zt);
+    // 3인칭: 코스 쪽 옆뒤에서 의자에 앉은 라이더를 바라본다 (배경으로 슬로프와 활강하는 사람들이 보인다)
+    dist = RIDE_CAM.back;
+    h = RIDE_CAM.up;
+    lateral = RIDE_CAM.side;
+    lookTarget.set(
+      x + Math.sin(camHeading) * RIDE_LOOK.ahead - LIFT.side * RIDE_LOOK.side,
+      y + RIDE_LOOK.up,
+      z + Math.cos(camHeading) * RIDE_LOOK.ahead,
+    );
   } else if (mode !== 'ski') {
     dist = 8.5;
     h = 3.6;
@@ -442,14 +446,12 @@ function updateRider(dt: number) {
   camPos.x -= LIFT.side * lateral;
   camPos.y = Math.max(camPos.y, height(camPos.x, camPos.z) + 1.8);
   camera.position.lerp(camPos, 1 - Math.exp(-dt * 12));
+  rideLock = mode === 'riding' ? Math.min(1, rideLock + dt / 0.9) : 0;
+  if (rideLock > 0) camera.position.lerp(camPos, rideLock * rideLock);
   if (shake > 0.01) {
     camera.position.x += (Math.random() - 0.5) * shake * 0.9;
     camera.position.y += (Math.random() - 0.5) * shake * 0.9;
     shake *= Math.exp(-dt * 5);
-  }
-  if (mode === 'riding') {
-    const dh = Math.hypot(lookTarget.x - camera.position.x, lookTarget.z - camera.position.z);
-    lookTarget.y = Math.max(lookTarget.y, camera.position.y - dh * Math.tan(RIDE_MAX_PITCH));
   }
   // 시선도 부드럽게 따라가야 모드가 바뀔 때(승강장 → 의자 → 활강) 화면이 휙 돌지 않는다
   if (!lookInit) {
@@ -457,9 +459,10 @@ function updateRider(dt: number) {
     lookInit = true;
   }
   lookSmooth.lerp(lookTarget, 1 - Math.exp(-dt * (mode === 'ski' ? 18 : 5)));
+  if (rideLock > 0) lookSmooth.lerp(lookTarget, rideLock * rideLock);
   camera.lookAt(lookSmooth);
 
-  const fov = mode === 'riding' ? 72 : 62 + speedK * 14;
+  const fov = mode === 'riding' ? RIDE_CAM.fov : 62 + speedK * 14;
   if (Math.abs(camera.fov - fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();

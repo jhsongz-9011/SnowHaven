@@ -50,27 +50,33 @@ export const PLAYER_RADIUS = 0.7;
 
 // ---------- 배치 ----------
 // [z, 중심선 기준 좌우 위치(+ = 오른쪽), 종류]
+// 장애물 수를 늘릴 때는 60m 간격(simtest 가 확인)을 지키면서 z 를 다시 배치한다. 지금은 z=180 ~ 1380 을 60m 마다 하나씩 (고정 12 + 이동 9).
 const FIXED_LAYOUT: [number, number, FixedKind][] = [
-  [200, -14, 'sinkhole'],
-  [330, 10, 'construction'],
-  [460, 18, 'sinkhole'],
-  [590, -16, 'construction'],
-  [720, 4, 'sinkhole'],
-  [850, 20, 'construction'],
-  [980, -20, 'sinkhole'],
-  [1110, -2, 'construction'],
-  [1250, 12, 'sinkhole'],
+  [180, -14, 'sinkhole'],
+  [300, 10, 'construction'],
+  [420, 18, 'sinkhole'],
+  [540, -16, 'construction'],
+  [600, 4, 'sinkhole'],
+  [720, 20, 'construction'],
+  [840, -20, 'sinkhole'],
+  [960, -2, 'construction'],
+  [1020, 12, 'sinkhole'],
+  [1140, -8, 'construction'],
+  [1260, 15, 'sinkhole'],
+  [1380, -18, 'construction'],
 ];
 
 // [z, 종류, 진폭, 속도, 위상]
 const MOVING_LAYOUT: [number, MovingKind, number, number, number][] = [
-  [270, 'deer', 30, 8, 0.0],
-  [400, 'rabbit', 30, 12, 0.35],
-  [655, 'deer', 30, 8, 0.6],
-  [790, 'rabbit', 30, 12, 0.1],
-  [1045, 'deer', 30, 8, 0.85],
-  [1170, 'rabbit', 30, 12, 0.55],
-  [1335, 'rabbit', 30, 12, 0.8],
+  [240, 'deer', 30, 8, 0.0],
+  [360, 'rabbit', 30, 12, 0.35],
+  [480, 'rabbit', 30, 12, 0.6],
+  [660, 'deer', 30, 8, 0.1],
+  [780, 'rabbit', 30, 12, 0.85],
+  [900, 'deer', 30, 8, 0.55],
+  [1080, 'rabbit', 30, 12, 0.8],
+  [1200, 'deer', 30, 8, 0.25],
+  [1320, 'rabbit', 30, 12, 0.45],
 ];
 
 function makeFixed(z: number, off: number, kind: FixedKind, n: number): FixedObstacle {
