@@ -1,6 +1,7 @@
 // 서버 통합 테스트: 실제 WebSocket 클라이언트 여러 개로 릴레이/검증/퇴장 처리를 확인한다. npm run nettest
 import { WebSocket } from 'ws';
 import { startServer } from './index';
+import { ANOMALY, MoveTracker } from './anomaly';
 import { NET, type PlayerView, type ServerMsg } from '../src/net/protocol';
 
 let fails = 0;
@@ -110,6 +111,105 @@ async function main() {
   probe.ws.close();
   for (const c of many) c.ws.close();
   await srv2.close();
+
+  // 이상 이동 감지 (통합): 순간이동을 계속하는 클라이언트는 서버가 끊고, 그동안 다른 사람에게는 이전 위치만 보인다
+  {
+    const srv4 = startServer(0, 'no-such-dir');
+    const good = new TestClient(srv4.port);
+    const cheat = new TestClient(srv4.port);
+    await Promise.all([good.open(), cheat.open()]);
+    cheat.sendView(view({ x: 0 }));
+    await sleep(120);
+    for (let i = 1; i <= 12; i++) cheat.sendView(view({ x: i * 400 })); // 5번은 허용, 그 뒤는 고정
+    await sleep(250);
+    const seen = good.snaps().flatMap((m) => m.p).filter((p) => p.id === cheat.id).map((p) => p.v.x);
+    ok(seen.length > 0 && Math.max(...seen) <= 2000, '이상 이동 감지(통합): 허용 횟수를 넘은 순간이동은 다른 사람에게 보이지 않는다');
+    for (let i = 0; i < 40; i++) cheat.sendView(view({ x: 4900, sp: 250 })); // 속도를 속이면 금방 끊긴다
+    await sleep(300);
+    ok(cheat.ws.readyState !== WebSocket.OPEN, '이상 이동 감지(통합): 계속 속이는 클라이언트는 연결이 끊긴다');
+    ok(good.ws.readyState === WebSocket.OPEN && srv4.count() === 1, '이상 이동 감지(통합): 정상 클라이언트는 영향이 없다');
+    good.ws.close();
+    await srv4.close();
+  }
+
+  // 이상 이동 감지 (단위): 시간을 직접 넣어 확인한다
+  {
+    const tr = new MoveTracker();
+    let t = 1000;
+    const step = (v: PlayerView, dtMs = 66) => tr.check(v, (t += dtMs));
+    // 정상 활강: 스키가 초당 40m 로 내려오는 흐름
+    let normal = true;
+    for (let i = 0; i < 60; i++) {
+      const r = step(view({ x: i * 2.6, sp: 40 }));
+      if (r.flags.length || r.kick || r.view.x !== i * 2.6) normal = false;
+    }
+    ok(normal, '이상 이동 감지: 정상적인 이동은 그대로 통과한다');
+    const fast = step(view({ x: 160, sp: 500 }));
+    ok(fast.flags.includes('speed') && fast.view.sp < 80, '이상 이동 감지: 최고 속도를 넘는 속도 주장은 깎인다');
+
+    // 점프(리프트 건너뛰기 등)는 몇 번까지 허용, 그 이상은 이전 위치로 고정
+    const tr2 = new MoveTracker();
+    let t2 = 0;
+    const s2 = (x: number) => tr2.check(view({ x }), (t2 += 66));
+    s2(0);
+    const allowed = [500, 1000, 1500, 2000, 2500].map(s2);
+    ok(allowed.every((r) => r.flags.includes('jump') && !r.kick), '이상 이동 감지: 정상 순간이동은 정해진 횟수까지 허용한다');
+    const blocked = s2(3000);
+    ok(blocked.flags.includes('frozen') && blocked.view.x === 2500, '이상 이동 감지: 횟수를 넘은 순간이동은 이전 위치로 고정된다');
+    // 시간이 지나면 허용 거리가 늘어 따라잡고, 점프 횟수도 회복된다
+    t2 += 10_000;
+    const later = s2(2600);
+    ok(!later.flags.includes('frozen') && later.view.x === 2600, '이상 이동 감지: 시간이 지나면 정상 이동으로 다시 받아들인다');
+
+    // 리프트 건너뛰기: 연출 중에는 출발 위치를 보내다가 도착하면 새 위치 1회 → 순간이동 1회로 보이고 이후 정상 이동은 통과
+    const trs = new MoveTracker();
+    let tt = 0;
+    trs.check(view({ x: 0 }), (tt += 66));
+    for (let i = 0; i < 14; i++) trs.check(view({ x: 0 }), (tt += 66)); // 연출 중 (제자리)
+    const arrive = trs.check(view({ x: 1500 }), (tt += 66));
+    let after = true;
+    for (let i = 1; i <= 90; i++) {
+      const r = trs.check(view({ x: 1500 + i * 2.6, sp: 40 }), (tt += 66));
+      if (r.flags.length || r.view.x !== 1500 + i * 2.6) after = false;
+    }
+    ok(arrive.flags.length === 1 && arrive.flags[0] === 'jump' && after, '이상 이동 감지: 리프트 건너뛰기(도착 시 순간이동 1회)는 이후 정상 이동까지 문제없이 통과한다');
+
+    // 매 메시지마다 조금씩 넘게 움직이는 스피드핵: 누적 예산 때문에 통과하지 못한다
+    const sh = new MoveTracker();
+    let ts = 0;
+    sh.check(view({ x: 0 }), (ts += 66));
+    let hackerShown = 0;
+    let hackerKicked = false;
+    for (let i = 1; i <= 250 && !hackerKicked; i++) {
+      const r = sh.check(view({ x: i * 44 }), (ts += 66)); // 약 667m/s
+      hackerShown = r.view.x;
+      hackerKicked = r.kick;
+    }
+    ok(hackerShown < 44 * 25 && hackerKicked, '이상 이동 감지: 메시지마다 조금씩 넘는 스피드핵은 누적 예산에 걸려 고정되고 결국 끊긴다');
+
+    // 점프 허용량이 회복된다 (20초에 1회)
+    const rc = new MoveTracker();
+    let tc = 0;
+    rc.check(view({ x: 0 }), (tc += 66));
+    for (let i = 1; i <= 5; i++) rc.check(view({ x: i * 500 }), (tc += 66)); // 5회 소진
+    tc += 21_000;
+    const refilled = rc.check(view({ x: 4000 }), (tc += 66));
+    ok(refilled.flags.includes('jump') && refilled.view.x === 4000, '이상 이동 감지: 20초가 지나면 점프 허용량이 1회 회복된다');
+
+    // 순간이동을 계속 시도하면 연결을 끊는다
+    const tr3 = new MoveTracker();
+    let t3 = 0;
+    tr3.check(view({ x: 0 }), (t3 += 66));
+    let kicked = false;
+    for (let i = 1; i < 400 && !kicked; i++) kicked = tr3.check(view({ x: i * 1000 }), (t3 += 66)).kick;
+    ok(kicked, '이상 이동 감지: 순간이동을 계속하면 연결을 끊는다');
+    // 속도를 계속 속이면 끊는다
+    const tr4 = new MoveTracker();
+    let t4 = 0;
+    let kicked2 = false;
+    for (let i = 0; i < 60 && !kicked2; i++) kicked2 = tr4.check(view({ sp: 900, x: i }), (t4 += 66)).kick;
+    ok(kicked2 && ANOMALY.strikeLimit > 0, '이상 이동 감지: 속도를 계속 속이면 연결을 끊는다');
+  }
 
   // 정적 파일: dist 를 내보내되 목록에 없는 경로(폴더 밖, 심볼릭 링크 포함)는 주지 않는다
   const { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync } = await import('node:fs');

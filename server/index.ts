@@ -1,6 +1,7 @@
 // 멀티플레이어 서버: 각 클라이언트가 보내는 자기 상태를 모아 주기적으로 모두에게 뿌린다 (릴레이, 서버 시뮬레이션 없음).
 import { createServer, type IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
+import { MoveTracker } from './anomaly';
 import { createStaticHandler } from './static';
 import { NET, parsePlayerView, randomNickname, type PlayerView, type ServerMsg } from '../src/net/protocol';
 
@@ -10,6 +11,8 @@ interface Conn {
   name: string;
   ws: WebSocket;
   view: PlayerView | null;
+  tracker: MoveTracker;
+  kicked: boolean;
   lastSeen: number;
   winStart: number; // 속도 제한 창 시작
   winCount: number;
@@ -90,7 +93,7 @@ export function startServer(port = Number(process.env.PORT ?? NET.port), staticD
     const taken = new Set([...conns.values()].map((o) => o.name));
     let name = randomNickname();
     for (let i = 0; i < 20 && taken.has(name); i++) name = randomNickname(); // 겹치면 다시 뽑는다
-    const c: Conn = { id: nextId++, ip, name, ws, view: null, lastSeen: now, winStart: now, winCount: 0 };
+    const c: Conn = { id: nextId++, ip, name, ws, view: null, tracker: new MoveTracker(), kicked: false, lastSeen: now, winStart: now, winCount: 0 };
     conns.set(c.id, c);
     send(ws, { t: 'hello', id: c.id, name, names: [...conns.values()].map((o) => ({ id: o.id, name: o.name })) });
     broadcast({ t: 'join', id: c.id, name }, c.id);
@@ -101,7 +104,7 @@ export function startServer(port = Number(process.env.PORT ?? NET.port), staticD
         c.winStart = t;
         c.winCount = 0;
       }
-      if (++c.winCount > NET.maxMsgPerSec) return; // 과다 전송은 버린다
+      if (c.kicked || ++c.winCount > NET.maxMsgPerSec) return; // 쫓아낸 연결과 과다 전송은 버린다
       let msg: unknown;
       try {
         msg = JSON.parse(data.toString());
@@ -111,8 +114,16 @@ export function startServer(port = Number(process.env.PORT ?? NET.port), staticD
       if (typeof msg !== 'object' || msg === null || (msg as { t?: unknown }).t !== 's') return;
       const v = parsePlayerView((msg as { v?: unknown }).v);
       if (!v) return;
-      c.view = v;
+      const r = c.tracker.check(v, t);
       c.lastSeen = t;
+      if (r.kick) {
+        console.warn(`이상 이동으로 연결 종료: id=${c.id} ip=${c.ip}`);
+        c.kicked = true;
+        ws.close(1008, 'anomaly');
+        setTimeout(() => ws.terminate(), 200); // 종료 사유 프레임이 전달될 시간을 준다
+        return;
+      }
+      c.view = r.view;
       dirty = true;
     });
     ws.on('close', () => drop(c));

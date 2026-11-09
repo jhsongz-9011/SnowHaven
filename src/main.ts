@@ -132,7 +132,9 @@ function applyModel() {
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 /** 서버로 보낼 내 상태 (모든 모드 공통: 월드 위치·방향 + 모델 종류) */
 function buildMyView(): PlayerView {
-  const pose = currentPose();
+  // 이동 연출(transfer) 중에는 출발 위치를 보낸다: 몇 백 m 를 0.9초에 보간하는 연출을 그대로 보내면 서버가 연속 순간이동으로 오해한다.
+  // 도착하면 새 위치가 한 번에 전해진다 (서버는 이를 "순간이동 1회"로 허용).
+  const pose = mode === 'transfer' && tr ? tr.from : currentPose();
   const skiing = mode === 'ski';
   return {
     eq: equipment,

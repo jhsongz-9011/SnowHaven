@@ -17,6 +17,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY server ./server
 COPY src/net/protocol.ts ./src/net/protocol.ts
+COPY src/sim/equipment.ts ./src/sim/equipment.ts
 COPY tsconfig.json ./tsconfig.json
 COPY --from=build /app/dist ./dist
 RUN chown -R node:node /app
