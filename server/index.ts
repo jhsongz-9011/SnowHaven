@@ -1,5 +1,5 @@
 // 멀티플레이어 서버: 각 클라이언트가 보내는 자기 상태를 모아 주기적으로 모두에게 뿌린다 (릴레이, 서버 시뮬레이션 없음).
-import type { IncomingMessage } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { NET, parsePlayerView, randomNickname, type PlayerView, type ServerMsg } from '../src/net/protocol';
 
@@ -14,15 +14,38 @@ interface Conn {
   winCount: number;
 }
 
-/** 리버스 프록시 뒤에서는 X-Forwarded-For 의 첫 주소를 쓴다 */
+/**
+ * 접속 IP. 프록시 뒤에서는 환경변수 TRUST_PROXY=<신뢰하는 프록시 단계 수> 를 줘야 X-Forwarded-For 를 쓴다.
+ * 클라이언트가 보낸 값은 왼쪽에 붙으므로 위조 가능 → 오른쪽에서 N번째 값만 믿는다. 설정이 없으면 소켓 주소를 쓴다.
+ */
+const TRUST_PROXY = Math.max(0, Math.floor(Number(process.env.TRUST_PROXY ?? 0)) || 0);
 function clientIp(req: IncomingMessage): string {
-  const fwd = req.headers['x-forwarded-for'];
-  const first = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(',')[0]?.trim();
-  return first || req.socket.remoteAddress || '';
+  if (TRUST_PROXY > 0) {
+    const fwd = req.headers['x-forwarded-for'];
+    const list = (Array.isArray(fwd) ? fwd.join(',') : fwd ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const ip = list[list.length - TRUST_PROXY];
+    if (ip) return ip;
+  }
+  return req.socket.remoteAddress || '';
 }
 
 export function startServer(port = Number(process.env.PORT ?? NET.port)) {
-  const wss = new WebSocketServer({ port, maxPayload: 2048 });
+  // 호스팅 서비스의 상태 확인(/health)을 받기 위해 HTTP 서버 위에 WebSocket 을 올린다
+  const http = createServer((req, res) => {
+    if (new URL(req.url ?? '/', 'http://x').pathname === '/health') {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    } else {
+      res.writeHead(426, { 'content-type': 'text/plain' });
+      res.end('SnowHaven game server (WebSocket only)');
+    }
+  });
+  const wss = new WebSocketServer({ server: http, maxPayload: 2048 });
+  http.once('error', (e) => {
+    console.error('서버를 시작하지 못했습니다:', e.message); // 포트 사용 중 등 — 떠 있는 채로 멈추지 않고 종료해 재시작되게 한다
+    process.exit(1);
+  });
+  http.listen(port);
   const conns = new Map<number, Conn>();
   let nextId = 1;
   let dirty = false;
@@ -104,20 +127,32 @@ export function startServer(port = Number(process.env.PORT ?? NET.port)) {
   }, NET.snapInterval * 1000);
 
   return {
-    port: (wss.address() as { port: number }).port,
+    get port() {
+      return (http.address() as { port: number } | null)?.port ?? port;
+    },
+    ready: new Promise<void>((res) => http.once('listening', () => res())),
     count: () => conns.size,
     close: () =>
       new Promise<void>((res) => {
         clearInterval(timer);
         for (const c of conns.values()) c.ws.terminate();
-        wss.close(() => res());
+        wss.close(() => {
+          http.closeAllConnections();
+          http.close(() => res());
+        });
       }),
   };
 }
 
 // 직접 실행했을 때만 서버를 띄운다 (테스트에서는 startServer 를 import)
-process.on('uncaughtException', (e) => console.error('예외:', e));
+process.on('uncaughtException', (e) => {
+  console.error('예외:', e);
+  process.exit(1); // 알 수 없는 상태로 계속 돌지 않고 재시작되게 한다
+});
 if (process.argv[1] && /server[\\/]index\.ts$/.test(process.argv[1])) {
   const s = startServer();
-  console.log(`SnowHaven 서버 시작: ws://localhost:${s.port}`);
+  void s.ready.then(() => console.log(`SnowHaven 서버 시작: ws://localhost:${s.port}`));
+  const stop = () => void s.close().then(() => process.exit(0));
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
 }

@@ -195,6 +195,25 @@ function action() {
 
 // ---------- HUD ----------
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// 접속 상태 표시: 바뀔 때만 DOM 을 갱신한다
+const netHud = $('net');
+let netHudKey = '';
+function updateNetHud() {
+  const on = net.connected;
+  const key = on ? `${net.selfName}|${net.remotes.count}` : '';
+  if (key === netHudKey) return;
+  netHudKey = key;
+  netHud.className = on ? 'hud on' : 'hud';
+  netHud.replaceChildren();
+  const dot = document.createElement('span');
+  dot.className = 'dot';
+  dot.setAttribute('aria-hidden', 'true');
+  const small = document.createElement('small');
+  netHud.append(dot, on ? net.selfName : '오프라인');
+  small.textContent = on ? `접속자 ${net.remotes.count + 1}명` : '혼자 플레이 중 (서버 연결 안 됨)';
+  netHud.append(small);
+}
 const spdEl = $('spd');
 const timeEl = $('time');
 const progEl = $('prog');
@@ -224,7 +243,8 @@ input.onKey = (k) => {
   }
 };
 
-const HINT_SKI = '← → / A D 방향 조절 · 1 스키 · 2 보드 · 3 썰매 · R 정상에서 다시 시작 (모바일: 화면 좌/우 터치)';
+const TOUCH = matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches; // 터치만 있는 기기면 키보드 대신 터치 안내 (마우스/키보드도 있는 하이브리드 기기는 기존 안내)
+const HINT_SKI = TOUCH ? '화면 왼쪽/오른쪽을 누르고 있으면 그 방향으로 꺾어요' : '← → / A D 방향 조절 · 1 스키 · 2 보드 · 3 썰매 · R 정상에서 다시 시작 (모바일: 화면 좌/우 터치)';
 let uiKey = '';
 
 function updateUi() {
@@ -232,12 +252,12 @@ function updateUi() {
   let hint = '';
   if (mode === 'station') {
     label = '리프트 타기';
-    hint = 'E / 버튼으로 리프트 탑승 · 1 스키 · 2 보드 · 3 썰매 로 장비 선택';
+    hint = TOUCH ? '아래에서 장비를 고르고 리프트를 타세요' : 'E / 버튼으로 리프트 탑승 · 1 스키 · 2 보드 · 3 썰매 로 장비 선택';
   } else if (mode === 'waiting') {
     label = '취소';
-    hint = '빈 자리가 있는 의자가 오면 자동으로 탑승합니다 · E 취소';
+    hint = TOUCH ? '빈 의자가 오면 자동으로 탑승해요' : '빈 자리가 있는 의자가 오면 자동으로 탑승합니다 · E 취소';
   } else if (mode === 'riding') {
-    hint = '코스를 바라보며 올라가는 중… 장비는 지금 바꿔도 됩니다 (1 · 2 · 3)';
+    hint = TOUCH ? '올라가는 중… 장비는 지금 바꿔도 돼요' : '코스를 바라보며 올라가는 중… 장비는 지금 바꿔도 됩니다 (1 · 2 · 3)';
   } else if (mode === 'transfer') {
     hint = '이동 중…';
   } else if (mode === 'ski') {
@@ -250,7 +270,7 @@ function updateUi() {
   uiKey = key;
   skipBtn.style.display = showSkip ? 'block' : 'none';
   actionBtn.style.display = label ? 'block' : 'none';
-  actionBtn.innerHTML = label ? `${label}<small>E</small>` : '';
+  actionBtn.innerHTML = label ? (TOUCH ? label : `${label}<small>E</small>`) : '';
   hintEl.textContent = hint;
 }
 
@@ -503,6 +523,7 @@ function frame(now: number) {
   obstacleView.update(renderT);
   updateRider(dt);
   net.tick(dt, now, buildMyView, camera.position);
+  updateNetHud();
   snowfall.update(dt, now / 1000, camera.position);
   updateHud();
   renderer.render(scene, camera);

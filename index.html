@@ -22,9 +22,22 @@
     #action small { display: block; font-size: 11px; font-weight: 600; opacity: .8; }
     #skip { position: fixed; top: 14px; right: 16px; display: none; border: 0; padding: 9px 14px; border-radius: 12px; font-size: 14px; font-weight: 700; color: #0e2a3f; background: rgba(255,255,255,.88); box-shadow: 0 2px 8px rgba(0,0,0,.2); cursor: pointer; }
     #skip small { font-weight: 500; opacity: .6; margin-left: 4px; }
+    #net { bottom: 22px; left: 16px; font-size: 13px; font-weight: 700; line-height: 1.35; }
+    #net .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #8a97a3; }
+    #net.on .dot { background: #2fbf6b; }
+    #net small { display: block; font-weight: 500; opacity: .7; }
     #hint { bottom: 86px; left: 0; right: 0; text-align: center; font-size: 13px; opacity: .8; }
     #msg { top: 30%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 800; display: none; }
     #msg small { display: block; margin-top: 8px; font-size: 15px; font-weight: 600; }
+    #gear button { white-space: nowrap; }
+    @media (max-width: 600px) {
+      #net { top: 122px; bottom: auto; }
+      #gear { gap: 2px; bottom: 12px; }
+      #gear button { padding: 8px 12px; }
+      #hint { bottom: 92px; left: 12px; right: 160px; text-align: left; font-size: 12px; }
+      #action { bottom: 86px; right: 12px; }
+      #skip { padding: 7px 10px; font-size: 13px; }
+    }
   </style>
 </head>
 <body>
@@ -35,6 +48,7 @@
     <div class="prog"><i id="prog"></i></div>
   </div>
   <div id="hint" class="hud">E / 버튼으로 리프트 탑승 · 1 스키 · 2 보드 · 3 썰매 로 장비 선택</div>
+  <div id="net" class="hud"></div>
   <div id="msg" class="hud"></div>
   <button id="skip">정상으로 바로 가기<small>테스트</small></button>
   <button id="action"></button>
