@@ -4,5 +4,4 @@ dist
 *.blend
 assets
 docs
-public
 .env*

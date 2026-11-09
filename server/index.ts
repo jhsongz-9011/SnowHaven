@@ -1,6 +1,7 @@
 // 멀티플레이어 서버: 각 클라이언트가 보내는 자기 상태를 모아 주기적으로 모두에게 뿌린다 (릴레이, 서버 시뮬레이션 없음).
 import { createServer, type IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
+import { createStaticHandler } from './static';
 import { NET, parsePlayerView, randomNickname, type PlayerView, type ServerMsg } from '../src/net/protocol';
 
 interface Conn {
@@ -29,15 +30,20 @@ function clientIp(req: IncomingMessage): string {
   return req.socket.remoteAddress || '';
 }
 
-export function startServer(port = Number(process.env.PORT ?? NET.port)) {
+export function startServer(port = Number(process.env.PORT ?? NET.port), staticDir = process.env.STATIC_DIR ?? 'dist') {
   // 호스팅 서비스의 상태 확인(/health)을 받기 위해 HTTP 서버 위에 WebSocket 을 올린다
+  const serveStatic = createStaticHandler(staticDir); // dist 가 없으면 null → WebSocket 전용으로 동작
   const http = createServer((req, res) => {
-    if (new URL(req.url ?? '/', 'http://x').pathname === '/health') {
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end('ok');
-    } else {
-      res.writeHead(426, { 'content-type': 'text/plain' });
-      res.end('SnowHaven game server (WebSocket only)');
+    try {
+      if (new URL(req.url ?? '/', 'http://x').pathname === '/health') {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('ok');
+      } else if (!(serveStatic && serveStatic(req, res))) {
+        res.writeHead(serveStatic ? 404 : 426, { 'content-type': 'text/plain' });
+        res.end(serveStatic ? 'Not found' : 'SnowHaven game server (WebSocket only)');
+      }
+    } catch {
+      res.destroy();
     }
   });
   const wss = new WebSocketServer({ server: http, maxPayload: 2048 });

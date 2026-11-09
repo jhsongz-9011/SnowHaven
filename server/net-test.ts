@@ -110,6 +110,47 @@ async function main() {
   probe.ws.close();
   for (const c of many) c.ws.close();
   await srv2.close();
+
+  // 정적 파일: dist 를 내보내되 목록에 없는 경로(폴더 밖, 심볼릭 링크 포함)는 주지 않는다
+  const { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const parent = mkdtempSync(join(tmpdir(), 'snowhaven-static-'));
+  try {
+    const dir = join(parent, 'dist');
+    mkdirSync(join(dir, 'assets'), { recursive: true });
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>t</title>');
+    writeFileSync(join(dir, 'assets', 'a.js'), 'x'.repeat(5000));
+    writeFileSync(join(parent, 'secret.txt'), 'secret');
+    symlinkSync(join(parent, 'secret.txt'), join(dir, 'link.txt'));
+    const srv3 = startServer(0, dir);
+    const get = (path: string, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${srv3.port}${path}`, { headers });
+    const r1 = await get('/'); // 시작 직후 첫 요청도 정적 파일이어야 한다
+    ok(r1.status === 200 && (await r1.text()).includes('<title>t</title>'), '정적 서버: 시작 직후 / 에서 index.html 을 준다');
+    ok(r1.headers.get('cache-control') === 'no-cache' && r1.headers.get('x-content-type-options') === 'nosniff', '정적 서버: html 은 no-cache, nosniff 헤더');
+    ok((await get('/health')).status === 200, '정적 서버: /health 는 그대로 동작한다');
+    ok((await get('/nope')).status === 404, '정적 서버: 없는 파일은 404');
+    const net = await import('node:net');
+    const raw = (reqPath: string) =>
+      new Promise<string>((res) => {
+        const sock = net.connect(srv3.port, '127.0.0.1', () => sock.write(`GET ${reqPath} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`));
+        let out = '';
+        sock.on('data', (d) => (out += d.toString()));
+        sock.on('close', () => res(out));
+      });
+    const bad = await Promise.all(['/../secret.txt', '/%2e%2e/secret.txt', '/link.txt', '/assets/..%2f..%2fsecret.txt', '/a%00.js'].map(raw));
+    ok(bad.every((t) => !t.includes('secret') && !t.includes(' 200 ')), '정적 서버: 폴더 밖/심볼릭 링크/널바이트 경로는 막는다');
+    const gz = await get('/assets/a.js', { 'accept-encoding': 'gzip' });
+    ok(gz.headers.get('content-encoding') === 'gzip' && gz.headers.get('vary') === 'accept-encoding', '정적 서버: 큰 텍스트 파일은 gzip 으로 준다');
+    const plain = await get('/assets/a.js', { 'accept-encoding': 'gzip;q=0' });
+    ok(!plain.headers.get('content-encoding'), '정적 서버: gzip;q=0 이면 압축하지 않는다');
+    const et = r1.headers.get('etag')!;
+    ok((await get('/', { 'if-none-match': et })).status === 304, '정적 서버: ETag 가 같으면 304');
+    ok((await fetch(`http://127.0.0.1:${srv3.port}/`, { method: 'HEAD' })).status === 200, '정적 서버: HEAD 요청');
+    await srv3.close();
+  } finally {
+    rmSync(parent, { recursive: true, force: true }); // 임시 파일 정리
+  }
   console.log(fails === 0 ? '네트워크 검증: 통과' : `네트워크 검증: 실패 ${fails}건`);
   process.exit(fails === 0 ? 0 : 1);
 }

@@ -8,7 +8,9 @@ function serverUrl(): string {
   if (env) return env;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const host = location.hostname.includes(':') ? `[${location.hostname}]` : location.hostname; // IPv6
-  return `${proto}://${host}:${NET.port}`;
+  // 빌드된 게임은 서버가 화면까지 내보내므로 같은 주소로 접속한다. 개발 중(vite)에만 서버 포트(8787)로 따로 접속한다.
+  if (import.meta.env.DEV) return `${proto}://${host}:${NET.port}`;
+  return `${proto}://${location.host}`;
 }
 
 export class Net {

@@ -198,7 +198,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 // 접속 상태 표시: 바뀔 때만 DOM 을 갱신한다
 const netHud = $('net');
-let netHudKey = '';
+let netHudKey = '\0'; // 처음에는 어떤 상태와도 다르게 해서 오프라인 표시도 그려지게 한다
 function updateNetHud() {
   const on = net.connected;
   const key = on ? `${net.selfName}|${net.remotes.count}` : '';
