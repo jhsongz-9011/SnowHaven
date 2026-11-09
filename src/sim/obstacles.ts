@@ -50,33 +50,42 @@ export const PLAYER_RADIUS = 0.7;
 
 // ---------- 배치 ----------
 // [z, 중심선 기준 좌우 위치(+ = 오른쪽), 종류]
-// 장애물 수를 늘릴 때는 60m 간격(simtest 가 확인)을 지키면서 z 를 다시 배치한다. 지금은 z=180 ~ 1380 을 60m 마다 하나씩 (고정 12 + 이동 9).
+// 장애물 수를 늘릴 때는 최소 간격(simtest 가 확인, 지금 40m)을 지키면서 z 를 다시 배치한다. 지금은 z=180 ~ 1369 를 41m 마다 하나씩 (고정 18 + 이동 12).
 const FIXED_LAYOUT: [number, number, FixedKind][] = [
   [180, -14, 'sinkhole'],
-  [300, 10, 'construction'],
-  [420, 18, 'sinkhole'],
-  [540, -16, 'construction'],
-  [600, 4, 'sinkhole'],
-  [720, 20, 'construction'],
-  [840, -20, 'sinkhole'],
-  [960, -2, 'construction'],
-  [1020, 12, 'sinkhole'],
-  [1140, -8, 'construction'],
-  [1260, 15, 'sinkhole'],
-  [1380, -18, 'construction'],
+  [262, 10, 'construction'],
+  [344, 18, 'sinkhole'],
+  [385, -16, 'construction'],
+  [467, 4, 'sinkhole'],
+  [549, 20, 'construction'],
+  [590, -20, 'sinkhole'],
+  [672, -2, 'construction'],
+  [754, 12, 'sinkhole'],
+  [795, -8, 'construction'],
+  [877, 15, 'sinkhole'],
+  [959, -18, 'construction'],
+  [1000, 6, 'sinkhole'],
+  [1082, -12, 'construction'],
+  [1164, 17, 'sinkhole'],
+  [1205, -6, 'construction'],
+  [1287, 13, 'sinkhole'],
+  [1369, -19, 'construction'],
 ];
 
 // [z, 종류, 진폭, 속도, 위상]
 const MOVING_LAYOUT: [number, MovingKind, number, number, number][] = [
-  [240, 'deer', 30, 8, 0.0],
-  [360, 'rabbit', 30, 12, 0.35],
-  [480, 'rabbit', 30, 12, 0.6],
-  [660, 'deer', 30, 8, 0.1],
-  [780, 'rabbit', 30, 12, 0.85],
-  [900, 'deer', 30, 8, 0.55],
-  [1080, 'rabbit', 30, 12, 0.8],
-  [1200, 'deer', 30, 8, 0.25],
-  [1320, 'rabbit', 30, 12, 0.45],
+  [221, 'deer', 30, 8, 0.0],
+  [303, 'rabbit', 30, 12, 0.35],
+  [426, 'deer', 30, 8, 0.6],
+  [508, 'rabbit', 30, 12, 0.1],
+  [631, 'deer', 30, 8, 0.85],
+  [713, 'rabbit', 30, 12, 0.55],
+  [836, 'deer', 30, 8, 0.8],
+  [918, 'rabbit', 30, 12, 0.25],
+  [1041, 'deer', 30, 8, 0.45],
+  [1123, 'rabbit', 30, 12, 0.7],
+  [1246, 'deer', 30, 8, 0.15],
+  [1328, 'rabbit', 30, 12, 0.9],
 ];
 
 function makeFixed(z: number, off: number, kind: FixedKind, n: number): FixedObstacle {

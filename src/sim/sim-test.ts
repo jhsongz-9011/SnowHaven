@@ -306,8 +306,8 @@ let minGap = Infinity;
 for (let i = 1; i < allZ.length; i++) minGap = Math.min(minGap, allZ[i] - allZ[i - 1]);
 const inLane = FIXED.every((o) => Math.abs(o.x - centerX(o.z)) <= COURSE.halfWidth - 8);
 check(
-  '장애물이 코스 안, 출발·결승에서 150m 이상, 서로 60m 이상 간격',
-  inLane && allZ[0] >= COURSE.startZ + 150 && allZ[allZ.length - 1] <= COURSE.finishZ - 100 && minGap >= 60,
+  '장애물이 코스 안, 출발·결승에서 150m 이상, 서로 40m 이상 간격',
+  inLane && allZ[0] >= COURSE.startZ + 150 && allZ[allZ.length - 1] <= COURSE.finishZ - 100 && minGap >= 40,
   `첫 장애물 z=${allZ[0]}, 마지막 z=${allZ[allZ.length - 1]}, 최소 간격 ${minGap}m`,
 );
 
